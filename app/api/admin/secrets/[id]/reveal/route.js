@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabaseServer'
+import { supabase } from '../../../../../lib/supabaseServer'
 
 export async function POST(req, { params }) {
   try {
@@ -7,7 +7,6 @@ export async function POST(req, { params }) {
     if (!params?.id) {
       return NextResponse.json({ error: 'Missing id param' }, { status: 400 })
     }
-
     const { error } = await supabaseAdmin
       .from('secrets')
       .update({ revealed: !!revealed })

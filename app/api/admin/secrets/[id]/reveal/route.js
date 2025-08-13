@@ -1,25 +1,19 @@
+// app/api/admin/secrets/[id]/reveal/route.js
 import { NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabaseServer'
+import { supabaseAdmin } from '@/lib/supabaseServer'  // 👈 AJOUT
 
-export async function POST(req, { params }) {
-  try {
-    const { revealed } = await req.json().catch(() => ({}))
-    if (!params?.id) {
-      return NextResponse.json({ error: 'Missing id param' }, { status: 400 })
-    }
-    const { error } = await supabaseAdmin
-      .from('secrets')
-      .update({ revealed: !!revealed })
-      .eq('id', params.id)
+// ⚠️ cette route doit tourner en runtime Node (pas Edge)
+// export const runtime = 'nodejs'
 
-    if (error) {
-      console.error('SUPABASE REVEAL ERROR:', error)
-      return NextResponse.json({ error: error.message }, { status: 400 })
-    }
+export async function POST(_req, { params }) {
+  const id = params?.id
+  if (!id) return NextResponse.json({ error: 'id manquant' }, { status: 400 })
 
-    return NextResponse.json({ ok: true })
-  } catch (e) {
-    console.error('ROUTE REVEAL CRASH:', e)
-    return NextResponse.json({ error: String(e?.message || e) }, { status: 500 })
-  }
+  const { error } = await supabaseAdmin
+    .from('secrets')
+    .update({ revealed: true, revealed_at: new Date().toISOString() })
+    .eq('id', id)
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ ok: true })
 }

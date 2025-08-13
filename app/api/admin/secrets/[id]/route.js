@@ -1,25 +1,18 @@
+// app/api/admin/secrets/[id]/route.js
 import { NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabaseServer'
+import { supabaseAdmin } from '@/lib/supabaseServer'  // 👈 AJOUT
+
+// export const runtime = 'nodejs'
 
 export async function DELETE(_req, { params }) {
-  try {
-    if (!params?.id) {
-      return NextResponse.json({ error: 'Missing id param' }, { status: 400 })
-    }
+  const id = params?.id
+  if (!id) return NextResponse.json({ error: 'id manquant' }, { status: 400 })
 
-    const { error } = await supabaseAdmin
-      .from('secrets')
-      .delete()
-      .eq('id', params.id)
+  const { error } = await supabaseAdmin
+    .from('secrets')
+    .delete()
+    .eq('id', id)
 
-    if (error) {
-      console.error('SUPABASE DELETE ERROR:', error)
-      return NextResponse.json({ error: error.message }, { status: 400 })
-    }
-
-    return NextResponse.json({ ok: true })
-  } catch (e) {
-    console.error('ROUTE DELETE CRASH:', e)
-    return NextResponse.json({ error: String(e?.message || e) }, { status: 500 })
-  }
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ ok: true })
 }

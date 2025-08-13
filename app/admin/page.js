@@ -366,6 +366,24 @@ export default function AdminPage() {
               </tbody>
             </table>
           )}
+
+          {/* Buzzes */}
+          <h2 style={{ marginTop: 24 }}>Buzzes</h2>
+          {buzzes.length === 0 ? (
+            <p>Aucun buzz pour l’instant.</p>
+          ) : (
+            <div style={{ marginTop: 12, display: 'grid', gap: 12 }}>
+              {buzzes.map(b => (
+                <div key={b.id} className="secret-card">
+                  <p><b>Auteur :</b> {b.author || 'Anonyme'}</p>
+                  <p><b>Buzz :</b> {b.content}</p>
+                  <p style={{ fontSize: 12, color: '#666' }}>
+                    {b.created_at ? new Date(b.created_at).toLocaleString('fr-FR') : ''}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
         </>
       )}
     </section>

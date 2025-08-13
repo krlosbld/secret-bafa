@@ -159,12 +159,19 @@ export default function AdminPage() {
     }
   }
 
+  // ⬇️ ICI : supprime le secret + nettoie le classement si c'était le dernier de cet auteur
   async function removeSecret(id) {
     if (!confirm('Supprimer ce secret ?')) return
-    const secretToRemove = secrets.find(s => s.id === id)
-    const prevSecrets = secrets
 
-    // Suppression optimiste
+    const prevSecrets = secrets
+    const prevScores = scores
+
+    // Récupérer l'auteur du secret ciblé
+    const target = prevSecrets.find(s => s.id === id)
+    const author = (target?.author || '').trim()
+    const authorKey = author.toLowerCase()
+
+    // Optimistic: retirer le secret immédiatement
     setSecrets(prevSecrets.filter(x => x.id !== id))
 
     try {
@@ -175,20 +182,27 @@ export default function AdminPage() {
         throw new Error(body.error || `Erreur delete (${res.status})`)
       }
 
-      // Si la personne n'a plus aucun secret → suppression du score
-      if (secretToRemove?.author) {
-        const stillHasSecret = prevSecrets.some(s => s.author === secretToRemove.author && s.id !== id)
+      // S'il n'y a plus aucun autre secret pour cet auteur -> retirer du classement (local + serveur)
+      if (author) {
+        const stillHasSecret = prevSecrets.some(
+          s => s.id !== id && (s.author || '').trim().toLowerCase() === authorKey
+        )
         if (!stillHasSecret) {
-          setScores(prev => prev.filter(r => r.name !== secretToRemove.author))
-          await fetch('/api/admin/scores/update', {
+          // UI locale
+          setScores(prevScores.filter(r => (r.name || '').trim().toLowerCase() !== authorKey))
+          // Nettoyage côté serveur (supprimer la ligne dans "scores")
+          await fetch('/api/admin/scores/remove', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: secretToRemove.author, delta: -999999 }),
+            body: JSON.stringify({ name: author }),
             cache: 'no-store'
           })
         }
       }
     } catch (e) {
+      // rollback complet si souci
+      setSecrets(prevSecrets)
+      setScores(prevScores)
       alert(e.message || 'Erreur suppression')
     }
   }
@@ -270,6 +284,7 @@ export default function AdminPage() {
     <section className="card">
       <h1>Gestion — v2</h1>
       <p style={{ margin: '6px 0', fontSize: 12, color: '#888' }}>build: admin optimisée</p>
+
       {/* Actions rapides */}
       <div style={{ display: 'flex', gap: 8, margin: '8px 0 16px' }}>
         <Link href="/admin/archive" className="btn">Voir l’archive</Link>
@@ -295,6 +310,7 @@ export default function AdminPage() {
           Tout réinitialiser
         </button>
       </div>
+
       {err && <p style={{ color: 'crimson' }}>{err}</p>}
       {loading ? <p>Chargement…</p> : (
         <>
@@ -325,19 +341,7 @@ export default function AdminPage() {
               })}
             </div>
           )}
-          {/* Buzz */}
-          <h2 style={{ marginTop: 24 }}>Buzz</h2>
-          {buzzes.length === 0 ? <p>Aucun buzz.</p> : (
-            <div className="secret-list" style={{ marginTop: 16, display: 'grid', gap: 12 }}>
-              {buzzes.map(b => (
-                <div key={b.id} className="secret-card">
-                  <p><b>De:</b> {b.author || 'Anonyme'}</p>
-                  <p><b>Message:</b> {b.content}</p>
-                  <p><b>Date:</b> {b.created_at ? new Date(b.created_at).toLocaleString() : '—'}</p>
-                </div>
-              ))}
-            </div>
-          )}
+
           {/* Classement */}
           <h2 style={{ marginTop: 24 }}>Classement</h2>
           {scores.length === 0 ? (
@@ -346,17 +350,17 @@ export default function AdminPage() {
             <table style={{ marginTop: 12, borderCollapse: 'collapse', width: '100%' }}>
               <thead>
                 <tr>
-                  <th>#</th>
-                  <th>Nom</th>
-                  <th>Points</th>
+                  <th style={{ width: '40px', textAlign: 'left', borderBottom: '1px solid #ddd', padding: '8px' }}>#</th>
+                  <th style={{ textAlign: 'left', borderBottom: '1px solid #ddd', padding: '8px' }}>Nom</th>
+                  <th style={{ width: '80px', textAlign: 'right', borderBottom: '1px solid #ddd', padding: '8px' }}>Points</th>
                 </tr>
               </thead>
               <tbody>
                 {scores.map((row, index) => (
                   <tr key={row.name}>
-                    <td>{index + 1}</td>
-                    <td>{row.name}</td>
-                    <td>{row.points}</td>
+                    <td style={{ padding: '8px', borderBottom: '1px solid #eee' }}>{index + 1}</td>
+                    <td style={{ padding: '8px', borderBottom: '1px solid #eee' }}>{row.name}</td>
+                    <td style={{ padding: '8px', borderBottom: '1px solid #eee', textAlign: 'right' }}>{row.points}</td>
                   </tr>
                 ))}
               </tbody>

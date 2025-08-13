@@ -1,6 +1,6 @@
 // app/api/scores/route.ts (ou .js)
 import { NextResponse } from 'next/server'
-import { supabase } from '../../../../../lib/supabaseServer'
+import { createServerClient } from '@/lib/supabaseServer'
 
 export async function POST(req) {
   try {

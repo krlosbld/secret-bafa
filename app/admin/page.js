@@ -2,15 +2,17 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { supabase } from '../../lib/supabaseClient'
 
 export default function AdminPage() {
+  const router = useRouter()
   const [code, setCode] = useState('')
   const [ok, setOk] = useState(false)
 
   const [secrets, setSecrets] = useState([])
-  const [scores, setScores] = useState([]) // { name, points }
-  const [buzzes, setBuzzes] = useState([]) // { id, author, content, created_at }
+  const [scores, setScores] = useState([])
+  const [buzzes, setBuzzes] = useState([])
 
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState(null)
@@ -37,7 +39,6 @@ export default function AdminPage() {
           .select('name, points')
           .order('points', { ascending: false }),
 
-        // ✅ alias PostgREST correct: content:text
         supabase
           .from('buzzes')
           .select('id,author,content:text,created_at')
@@ -59,7 +60,6 @@ export default function AdminPage() {
     }
     loadAll()
 
-    // Realtime secrets
     const chSecrets = supabase
       .channel('admin:secrets')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'secrets' }, (payload) => {
@@ -72,7 +72,6 @@ export default function AdminPage() {
       })
       .subscribe()
 
-    // Realtime scores
     const chScores = supabase
       .channel('admin:scores')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'scores' }, (payload) => {
@@ -85,11 +84,9 @@ export default function AdminPage() {
       })
       .subscribe()
 
-    // Realtime buzzes
     const chBuzzes = supabase
       .channel('admin:buzzes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'buzzes' }, (payload) => {
-        // on normalise pour avoir toujours "content"
         const normalizeBuzz = (b) => ({ ...b, content: b?.content ?? b?.text ?? b?.message })
         setBuzzes(prev => {
           if (payload.eventType === 'INSERT') return [normalizeBuzz(payload.new), ...prev]
@@ -129,24 +126,32 @@ export default function AdminPage() {
 
   async function toggleReveal(s) {
     setErr(null)
+    setSecrets(prev => prev.map(x => x.id === s.id ? { ...x, revealed: !x.revealed } : x))
     const res = await fetch(`/api/admin/secrets/${s.id}/reveal`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ revealed: !s.revealed }),
+      cache: 'no-store'
     })
     if (!res.ok) {
+      setSecrets(prev => prev.map(x => x.id === s.id ? { ...x, revealed: s.revealed } : x))
       const { error } = await res.json().catch(() => ({ error: 'Erreur inconnue' }))
       setErr(error || 'Erreur reveal')
+      return
     }
+    router.refresh()
   }
 
   async function removeSecret(id) {
     if (!confirm('Supprimer ce secret ?')) return
-    const res = await fetch(`/api/admin/secrets/${id}`, { method: 'DELETE' })
+    const prev = secrets
+    setSecrets(prev.filter(x => x.id !== id))
+    const res = await fetch(`/api/admin/secrets/${id}`, { method: 'DELETE', cache: 'no-store' })
     const body = await res.json().catch(() => ({}))
     if (!res.ok) {
+      setSecrets(prev)
       alert(`Erreur delete (${res.status}) : ${body.error || 'inconnue'}`)
+      return
     }
+    router.refresh()
   }
 
   async function changePoints(name, delta) {
@@ -177,6 +182,7 @@ export default function AdminPage() {
       if (typeof body.points === 'number') {
         upsertScoreLocal(name, body.points)
       }
+      router.refresh()
     } catch (e) {
       alert(e.message)
       console.error(e)
@@ -185,7 +191,6 @@ export default function AdminPage() {
     }
   }
 
-  // 🔥 Handler ajouté "juste après tes autres fonctions"
   async function resetAll() {
     const sure = confirm('⚠️ Cette action efface TOUT (secrets, buzz, archives, classement). Continuer ?')
     if (!sure) return
@@ -201,7 +206,6 @@ export default function AdminPage() {
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(json.error || 'Erreur reset')
 
-      // Vide l’état local (le realtime ré-alimentera quand nécessaire)
       setSecrets([])
       setScores([])
       setBuzzes([])
@@ -236,12 +240,10 @@ export default function AdminPage() {
   return (
     <section className="card">
       <h1>Gestion — v2</h1>
-<p style={{ margin: '6px 0', fontSize: 12, color: '#888' }}>build: admin v2</p>
+      <p style={{ margin: '6px 0', fontSize: 12, color: '#888' }}>build: admin v2</p>
 
-      {/* Boutons d'accès rapides */}
       <div style={{ display: 'flex', gap: 8, margin: '8px 0 16px' }}>
         <Link href="/admin/archive" className="btn">Voir l’archive</Link>
-
         <button
           className="btn"
           onClick={async () => {
@@ -259,7 +261,6 @@ export default function AdminPage() {
         >
           Archiver aujourd’hui
         </button>
-
         <button
           className="btn"
           style={{ background: '#ef4444', color: '#fff' }}
@@ -273,7 +274,6 @@ export default function AdminPage() {
       {err && <p style={{ color: 'crimson' }}>{err}</p>}
       {loading ? <p>Chargement…</p> : (
         <>
-          {/* --- Secrets --- */}
           <h2>Secrets</h2>
           {secrets.length === 0 ? <p>Aucun secret.</p> : (
             <div className="secret-list" style={{ marginTop: 16, display: 'grid', gap: 12 }}>
@@ -301,7 +301,6 @@ export default function AdminPage() {
             </div>
           )}
 
-          {/* --- Buzzes --- */}
           <h2 style={{ marginTop: 24 }}>Buzz</h2>
           {buzzes.length === 0 ? <p>Aucun buzz.</p> : (
             <div className="secret-list" style={{ marginTop: 16, display: 'grid', gap: 12 }}>
@@ -315,7 +314,6 @@ export default function AdminPage() {
             </div>
           )}
 
-          {/* --- Classement (live) --- */}
           <h2 style={{ marginTop: 24 }}>Classement</h2>
           {scores.length === 0 ? (
             <p>Aucun score.</p>

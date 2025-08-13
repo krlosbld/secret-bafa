@@ -2,6 +2,10 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseServer'
 
+// Empêche Next de mettre en cache cette route
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export async function POST(req) {
   try {
     const body = await req.json().catch(() => ({}))
@@ -14,7 +18,7 @@ export async function POST(req) {
     if (!name || !Number.isFinite(delta)) {
       return NextResponse.json(
         { error: 'name (string) et delta (number) requis' },
-        { status: 400 }
+        { status: 400, headers: { 'Cache-Control': 'no-store' } }
       )
     }
 
@@ -26,7 +30,7 @@ export async function POST(req) {
       .maybeSingle()
 
     if (selErr) {
-      return NextResponse.json({ error: selErr.message }, { status: 400 })
+      return NextResponse.json({ error: selErr.message }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
     }
 
     // 2) Calculer + écrire
@@ -40,7 +44,7 @@ export async function POST(req) {
         .eq('name', name)
 
       if (upErr) {
-        return NextResponse.json({ error: upErr.message }, { status: 400 })
+        return NextResponse.json({ error: upErr.message }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
       }
     } else {
       const { error: insErr } = await supabaseAdmin
@@ -48,12 +52,18 @@ export async function POST(req) {
         .insert([{ name, points: newPoints, updated_at: now }])
 
       if (insErr) {
-        return NextResponse.json({ error: insErr.message }, { status: 400 })
+        return NextResponse.json({ error: insErr.message }, { status: 400, headers: { 'Cache-Control': 'no-store' } })
       }
     }
 
-    return NextResponse.json({ ok: true, name, points: newPoints })
+    return NextResponse.json(
+      { ok: true, name, points: newPoints },
+      { status: 200, headers: { 'Cache-Control': 'no-store' } }
+    )
   } catch (e) {
-    return NextResponse.json({ error: String(e?.message || e) }, { status: 500 })
+    return NextResponse.json(
+      { error: String(e?.message || e) },
+      { status: 500, headers: { 'Cache-Control': 'no-store' } }
+    )
   }
 }

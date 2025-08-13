@@ -161,13 +161,35 @@ export default function AdminPage() {
 
   async function removeSecret(id) {
     if (!confirm('Supprimer ce secret ?')) return
-    const prev = secrets
-    setSecrets(prev.filter(x => x.id !== id))
-    const res = await fetch(`/api/admin/secrets/${id}`, { method: 'DELETE', cache: 'no-store' })
-    if (!res.ok) {
-      setSecrets(prev)
-      const body = await res.json().catch(() => ({}))
-      alert(`Erreur delete (${res.status}) : ${body.error || 'inconnue'}`)
+    const secretToRemove = secrets.find(s => s.id === id)
+    const prevSecrets = secrets
+
+    // Suppression optimiste
+    setSecrets(prevSecrets.filter(x => x.id !== id))
+
+    try {
+      const res = await fetch(`/api/admin/secrets/${id}`, { method: 'DELETE', cache: 'no-store' })
+      if (!res.ok) {
+        setSecrets(prevSecrets)
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error || `Erreur delete (${res.status})`)
+      }
+
+      // Si la personne n'a plus aucun secret → suppression du score
+      if (secretToRemove?.author) {
+        const stillHasSecret = prevSecrets.some(s => s.author === secretToRemove.author && s.id !== id)
+        if (!stillHasSecret) {
+          setScores(prev => prev.filter(r => r.name !== secretToRemove.author))
+          await fetch('/api/admin/scores/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: secretToRemove.author, delta: -999999 }),
+            cache: 'no-store'
+          })
+        }
+      }
+    } catch (e) {
+      alert(e.message || 'Erreur suppression')
     }
   }
 

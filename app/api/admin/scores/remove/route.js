@@ -10,11 +10,10 @@ export async function POST(req) {
       return NextResponse.json({ error: 'name requis' }, { status: 400 })
     }
 
-    // suppression case-insensitive sans wildcard
     const { error } = await supabaseAdmin
       .from('scores')
       .delete()
-      .ilike('name', trimmed) // exact si pas de % dans le pattern
+      .ilike('name', trimmed) // égalité insensible à la casse
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 })

@@ -159,7 +159,7 @@ export default function AdminPage() {
     }
   }
 
-  // ⬇️ ICI : supprime le secret + nettoie le classement si c'était le dernier de cet auteur
+  // Supprime le secret + enlève le joueur du classement si c’était son dernier secret
   async function removeSecret(id) {
     if (!confirm('Supprimer ce secret ?')) return
 

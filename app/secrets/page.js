@@ -3,33 +3,32 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabaseClient'
 
-export default function Page() {
+export default function SecretsPublicPage() {
   const [secrets, setSecrets] = useState([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+  const [err, setErr] = useState(null)
 
   useEffect(() => {
     let ignore = false
 
     async function load() {
+      setLoading(true)
+      setErr(null)
       const { data, error } = await supabase
         .from('secrets')
         .select('id, author, content, revealed, created_at')
         .order('created_at', { ascending: false })
 
-      if (error) {
-        setError(error.message)
-      } else if (!ignore) {
-        setSecrets(data || [])
-      }
+      if (ignore) return
+      if (error) setErr(error.message)
+      else setSecrets(data || [])
       setLoading(false)
     }
-
     load()
 
-    // Realtime (nouveaux secrets sans recharger la page)
-    const channel = supabase
-      .channel('realtime:secrets')
+    // Realtime (INSERT / UPDATE / DELETE)
+    const ch = supabase
+      .channel('public:secrets')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'secrets' }, (payload) => {
         setSecrets((prev) => {
           if (payload.eventType === 'INSERT') return [payload.new, ...prev]
@@ -42,32 +41,28 @@ export default function Page() {
 
     return () => {
       ignore = true
-      supabase.removeChannel(channel)
+      supabase.removeChannel(ch)
     }
   }, [])
-
-  if (loading) return <section className="card"><p>Chargement…</p></section>
-  if (error)   return <section className="card"><p>Erreur : {error}</p></section>
 
   return (
     <section className="card">
       <h1>Voir les Secrets</h1>
-
-      {secrets.length === 0 ? (
-        <p style={{ marginTop: 12 }}>Aucun secret pour le moment.</p>
-      ) : (
-        <div className="secret-list" style={{ marginTop: 16 }}>
-          {secrets.map(item => (
-            <div key={item.id} className="secret-card">
-              <p className="secret-field">
-                <b>Nom:</b> {item.revealed ? <strong>{item.author}</strong> : 'Anonyme'}
-              </p>
-              <p className="secret-field">
-                <b>Secret:</b> <span className="secret-text">{item.content}</span>
-              </p>
-            </div>
-          ))}
-        </div>
+      {err && <p style={{ color: 'crimson' }}>{err}</p>}
+      {loading ? <p>Chargement…</p> : (
+        secrets.length === 0 ? <p>Aucun secret.</p> : (
+          <div style={{ marginTop: 16, display: 'grid', gap: 12 }}>
+            {secrets.map(s => (
+              <div key={s.id} className="secret-card">
+                <p><b>Nom:</b> {s.revealed ? (s.author || 'Anonyme') : 'Anonyme'}</p>
+                <p><b>Secret:</b> {s.content}</p>
+                <p style={{ fontSize: 12, color: '#777' }}>
+                  {s.created_at ? new Date(s.created_at).toLocaleString() : '—'}
+                </p>
+              </div>
+            ))}
+          </div>
+        )
       )}
     </section>
   )

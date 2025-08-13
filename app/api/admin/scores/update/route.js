@@ -1,6 +1,6 @@
-// app/api/scores/route.ts (ou .js)
+// app/api/admin/scores/update/route.js
 import { NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabaseServer'
+import { supabaseAdmin } from '@/lib/supabaseServer'
 
 export async function POST(req) {
   try {

@@ -2,11 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { supabase } from '../../lib/supabaseClient'
 
 export default function AdminPage() {
-  const router = useRouter()
   const [code, setCode] = useState('')
   const [ok, setOk] = useState(false)
 
@@ -19,6 +17,35 @@ export default function AdminPage() {
   const [pendingName, setPendingName] = useState(null)
 
   const ADMIN_CODE = process.env.NEXT_PUBLIC_ADMIN_CODE
+  const SESSION_DURATION = 10 * 60 * 1000 // 10 minutes
+
+  // Au chargement, on vérifie si une session est encore valide
+  useEffect(() => {
+    const saved = localStorage.getItem('adminSession')
+    if (saved) {
+      try {
+        const { code: savedCode, timestamp } = JSON.parse(saved)
+        if (savedCode === ADMIN_CODE && Date.now() - timestamp < SESSION_DURATION) {
+          setCode(savedCode)
+          setOk(true)
+        } else {
+          localStorage.removeItem('adminSession')
+        }
+      } catch {
+        localStorage.removeItem('adminSession')
+      }
+    }
+  }, [])
+
+  // Si l'admin se connecte, on sauvegarde la session
+  useEffect(() => {
+    if (ok) {
+      localStorage.setItem('adminSession', JSON.stringify({
+        code,
+        timestamp: Date.now()
+      }))
+    }
+  }, [ok])
 
   useEffect(() => {
     if (!ok) return
@@ -29,20 +56,9 @@ export default function AdminPage() {
       setErr(null)
 
       const [sec, sco, buz] = await Promise.all([
-        supabase
-          .from('secrets')
-          .select('id, author, content, revealed, created_at')
-          .order('created_at', { ascending: false }),
-
-        supabase
-          .from('scores')
-          .select('name, points')
-          .order('points', { ascending: false }),
-
-        supabase
-          .from('buzzes')
-          .select('id,author,content:text,created_at')
-          .order('created_at', { ascending: false }),
+        supabase.from('secrets').select('id, author, content, revealed, created_at').order('created_at', { ascending: false }),
+        supabase.from('scores').select('name, points').order('points', { ascending: false }),
+        supabase.from('buzzes').select('id,author,content:text,created_at').order('created_at', { ascending: false }),
       ])
 
       if (ignore) return
@@ -60,6 +76,7 @@ export default function AdminPage() {
     }
     loadAll()
 
+    // Realtime secrets
     const chSecrets = supabase
       .channel('admin:secrets')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'secrets' }, (payload) => {
@@ -72,6 +89,7 @@ export default function AdminPage() {
       })
       .subscribe()
 
+    // Realtime scores
     const chScores = supabase
       .channel('admin:scores')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'scores' }, (payload) => {
@@ -84,6 +102,7 @@ export default function AdminPage() {
       })
       .subscribe()
 
+    // Realtime buzzes
     const chBuzzes = supabase
       .channel('admin:buzzes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'buzzes' }, (payload) => {
@@ -129,15 +148,15 @@ export default function AdminPage() {
     setSecrets(prev => prev.map(x => x.id === s.id ? { ...x, revealed: !x.revealed } : x))
     const res = await fetch(`/api/admin/secrets/${s.id}/reveal`, {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ revealed: !s.revealed }),
       cache: 'no-store'
     })
     if (!res.ok) {
       setSecrets(prev => prev.map(x => x.id === s.id ? { ...x, revealed: s.revealed } : x))
       const { error } = await res.json().catch(() => ({ error: 'Erreur inconnue' }))
       setErr(error || 'Erreur reveal')
-      return
     }
-    router.refresh()
   }
 
   async function removeSecret(id) {
@@ -145,13 +164,11 @@ export default function AdminPage() {
     const prev = secrets
     setSecrets(prev.filter(x => x.id !== id))
     const res = await fetch(`/api/admin/secrets/${id}`, { method: 'DELETE', cache: 'no-store' })
-    const body = await res.json().catch(() => ({}))
     if (!res.ok) {
       setSecrets(prev)
+      const body = await res.json().catch(() => ({}))
       alert(`Erreur delete (${res.status}) : ${body.error || 'inconnue'}`)
-      return
     }
-    router.refresh()
   }
 
   async function changePoints(name, delta) {
@@ -159,12 +176,10 @@ export default function AdminPage() {
       alert("Ce secret n'a pas de prénom — impossible d'attribuer des points.")
       return
     }
-
     const current = pointsFor(name)
     const optimistic = current + Number(delta || 0)
     upsertScoreLocal(name, optimistic)
     setPendingName(name)
-
     try {
       const res = await fetch('/api/admin/scores/update', {
         method: 'POST',
@@ -173,45 +188,37 @@ export default function AdminPage() {
         cache: 'no-store',
       })
       const body = await res.json().catch(() => ({}))
-
       if (!res.ok) {
         upsertScoreLocal(name, current)
         throw new Error(body.error || `Erreur points (${res.status})`)
       }
-
       if (typeof body.points === 'number') {
         upsertScoreLocal(name, body.points)
       }
-      router.refresh()
     } catch (e) {
       alert(e.message)
-      console.error(e)
     } finally {
       setPendingName(null)
     }
   }
 
   async function resetAll() {
-    const sure = confirm('⚠️ Cette action efface TOUT (secrets, buzz, archives, classement). Continuer ?')
+    const sure = confirm('⚠️ Cette action efface TOUT. Continuer ?')
     if (!sure) return
     const check = prompt('Pour confirmer, tape exactement : RESET')
     if (check !== 'RESET') return
-
     try {
       const res = await fetch('/api/admin/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: ADMIN_CODE }),
       })
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(json.error || 'Erreur reset')
-
+      if (!res.ok) throw new Error((await res.json()).error || 'Erreur reset')
       setSecrets([])
       setScores([])
       setBuzzes([])
       alert('Base réinitialisée ✅')
     } catch (e) {
-      console.error(e)
       alert(e.message || 'Erreur')
     }
   }
@@ -240,40 +247,36 @@ export default function AdminPage() {
   return (
     <section className="card">
       <h1>Gestion — v2</h1>
-      <p style={{ margin: '6px 0', fontSize: 12, color: '#888' }}>build: admin v2</p>
-
+      <p style={{ margin: '6px 0', fontSize: 12, color: '#888' }}>build: admin optimisée</p>
+      {/* Actions rapides */}
       <div style={{ display: 'flex', gap: 8, margin: '8px 0 16px' }}>
         <Link href="/admin/archive" className="btn">Voir l’archive</Link>
-        <button
-          className="btn"
-          onClick={async () => {
-            const okNow = confirm('Archiver maintenant les buzz du jour ?')
-            if (!okNow) return
-            const res = await fetch('/api/admin/archive/run', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ code: ADMIN_CODE })
-            })
-            const json = await res.json().catch(()=>({}))
-            if (!res.ok) alert(json.error || 'Erreur')
-            else alert('Archivage du jour exécuté ✅')
-          }}
-        >
+        <button className="btn" onClick={async () => {
+          const okNow = confirm('Archiver maintenant les buzz du jour ?')
+          if (!okNow) return
+          const res = await fetch('/api/admin/archive/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code: ADMIN_CODE })
+          })
+          const json = await res.json().catch(()=>({}))
+          if (!res.ok) alert(json.error || 'Erreur')
+          else alert('Archivage du jour exécuté ✅')
+        }}>
           Archiver aujourd’hui
         </button>
         <button
           className="btn"
           style={{ background: '#ef4444', color: '#fff' }}
           onClick={resetAll}
-          title="Efface secrets, buzzes, archives et classement"
         >
           Tout réinitialiser
         </button>
       </div>
-
       {err && <p style={{ color: 'crimson' }}>{err}</p>}
       {loading ? <p>Chargement…</p> : (
         <>
+          {/* Secrets */}
           <h2>Secrets</h2>
           {secrets.length === 0 ? <p>Aucun secret.</p> : (
             <div className="secret-list" style={{ marginTop: 16, display: 'grid', gap: 12 }}>
@@ -300,7 +303,7 @@ export default function AdminPage() {
               })}
             </div>
           )}
-
+          {/* Buzz */}
           <h2 style={{ marginTop: 24 }}>Buzz</h2>
           {buzzes.length === 0 ? <p>Aucun buzz.</p> : (
             <div className="secret-list" style={{ marginTop: 16, display: 'grid', gap: 12 }}>
@@ -313,7 +316,7 @@ export default function AdminPage() {
               ))}
             </div>
           )}
-
+          {/* Classement */}
           <h2 style={{ marginTop: 24 }}>Classement</h2>
           {scores.length === 0 ? (
             <p>Aucun score.</p>
@@ -321,17 +324,17 @@ export default function AdminPage() {
             <table style={{ marginTop: 12, borderCollapse: 'collapse', width: '100%' }}>
               <thead>
                 <tr>
-                  <th style={{ textAlign: 'left', padding: '8px', borderBottom: '1px solid #ddd' }}>#</th>
-                  <th style={{ textAlign: 'left', padding: '8px', borderBottom: '1px solid #ddd' }}>Nom</th>
-                  <th style={{ textAlign: 'left', padding: '8px', borderBottom: '1px solid #ddd' }}>Points</th>
+                  <th>#</th>
+                  <th>Nom</th>
+                  <th>Points</th>
                 </tr>
               </thead>
               <tbody>
                 {scores.map((row, index) => (
                   <tr key={row.name}>
-                    <td style={{ padding: '8px', borderBottom: '1px solid #eee' }}>{index + 1}</td>
-                    <td style={{ padding: '8px', borderBottom: '1px solid #eee' }}>{row.name}</td>
-                    <td style={{ padding: '8px', borderBottom: '1px solid #eee' }}>{row.points}</td>
+                    <td>{index + 1}</td>
+                    <td>{row.name}</td>
+                    <td>{row.points}</td>
                   </tr>
                 ))}
               </tbody>

@@ -4,6 +4,14 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '../../lib/supabaseClient'
 
+// Utilitaire: retourne "YYYY-MM-DD" pour l'heure Europe/Paris
+function toYYYYMMDD(date = new Date(), tz = 'Europe/Paris') {
+  const s = new Date(
+    new Date().toLocaleString('en-US', { timeZone: tz })
+  ).toISOString().slice(0, 10)
+  return s
+}
+
 export default function AdminPage() {
   const [code, setCode] = useState('')
   const [ok, setOk] = useState(false)
@@ -288,6 +296,7 @@ export default function AdminPage() {
       {/* Actions rapides */}
       <div style={{ display: 'flex', gap: 8, margin: '8px 0 16px' }}>
         <Link href="/admin/archive" className="btn">Voir l’archive</Link>
+
         <button className="btn" onClick={async () => {
           const okNow = confirm('Archiver maintenant les buzz du jour ?')
           if (!okNow) return
@@ -302,6 +311,31 @@ export default function AdminPage() {
         }}>
           Archiver aujourd’hui
         </button>
+
+        {/* NOUVEAU : Restaurer une journée */}
+        <button
+          className="btn"
+          onClick={async () => {
+            const def = toYYYYMMDD() // propose la date du jour (Europe/Paris)
+            const date = prompt('Restaurer quelle date ? (YYYY-MM-DD)', def)
+            if (!date) return
+            try {
+              const res = await fetch('/api/admin/archive/restore', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code: ADMIN_CODE, date })
+              })
+              const json = await res.json().catch(() => ({}))
+              if (!res.ok) throw new Error(json.error || `Erreur (${res.status})`)
+              alert(`Restauration OK — ${json.restored ?? 0} buzz remis ✅`)
+            } catch (e) {
+              alert(e.message || 'Erreur restauration')
+            }
+          }}
+        >
+          Restaurer une journée
+        </button>
+
         <button
           className="btn"
           style={{ background: '#ef4444', color: '#fff' }}
